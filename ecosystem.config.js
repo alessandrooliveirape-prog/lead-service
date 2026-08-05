@@ -10,14 +10,15 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3001,
         AUTOPILOT_AUTOSTART: 'true'
       },
       env_development: {
         NODE_ENV: 'development',
-        PORT: 3000,
+        PORT: 3001,
         AUTOPILOT_AUTOSTART: 'false'
       }
+
     }
   ]
 };
