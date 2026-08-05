@@ -206,8 +206,10 @@ export class MessagingService {
       return { status: 'SIMULATED', message: 'Envio de mensagem simulado.' };
     }
 
-    const endpoint = `${this.apiUrl}/message/sendText/default`;
+    const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'agendapro';
+    const endpoint = `${this.apiUrl}/message/sendText/${instanceName}`;
     const resApi = await fetch(endpoint, {
+
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
