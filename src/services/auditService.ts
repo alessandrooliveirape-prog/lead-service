@@ -146,7 +146,8 @@ IMPORTANTE: Responda APENAS com o código JSON puro, sem markdown, sem explicaç
 
 
   private async callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiKey}`;
+
     
     const body = {
       contents: [
