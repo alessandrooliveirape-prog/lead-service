@@ -5,10 +5,11 @@ dotenv.config();
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('supabase') || process.env.NODE_ENV === 'production'
+  ssl: (process.env.DATABASE_URL?.includes('supabase') || process.env.DATABASE_URL?.includes('sslmode='))
     ? { rejectUnauthorized: false }
     : false,
 });
+
 
 export async function checkDatabaseConnection(): Promise<{ connected: boolean; message?: string }> {
   try {
