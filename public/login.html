@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login Gestor - Lead Service</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased flex items-center justify-center p-4">
+  <div id="root" class="w-full max-w-sm"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function LoginPage() {
+      const [username, setUsername] = useState('admin');
+      const [password, setPassword] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [errorMsg, setErrorMsg] = useState('');
+
+      useEffect(() => {
+        const token = localStorage.getItem('lead_admin_token');
+        if (token) {
+          window.location.href = '/';
+        }
+      }, []);
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        if (!username || !password) {
+          setErrorMsg('Preencha o usuário e a senha.');
+          return;
+        }
+
+        setLoading(true);
+        setErrorMsg('');
+
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+
+          const data = await res.json();
+
+          if (res.ok && data.token) {
+            localStorage.setItem('lead_admin_token', data.token);
+            window.location.href = '/';
+          } else {
+            setErrorMsg(data.error || 'Credenciais inválidas.');
+          }
+        } catch (err) {
+          setErrorMsg('Erro ao conectar ao servidor.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div class="text-center space-y-2">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-emerald-500 to-indigo-600 flex items-center justify-center text-white text-xl font-bold mx-auto shadow-lg shadow-emerald-500/20">
+              ⚡
+            </div>
+            <h1 class="text-xl font-bold text-slate-100">Painel Gestor</h1>
+            <p class="text-xs text-slate-400">Prospecção e Funil Autônomo de Vendas</p>
+          </div>
+
+          <form onSubmit={handleLogin} class="space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Usuário</label>
+              <div class="relative">
+                <i class="fa-solid fa-user absolute left-3 top-3 text-slate-500 text-xs"></i>
+                <input 
+                  type="text" 
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Seu usuário"
+                  class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Senha</label>
+              <div class="relative">
+                <i class="fa-solid fa-lock absolute left-3 top-3 text-slate-500 text-xs"></i>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Sua senha"
+                  class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            {errorMsg && (
+              <div class="p-3 bg-red-950/60 border border-red-800/60 text-red-300 text-xs rounded-xl flex items-center gap-2">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                {errorMsg}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2"
+            >
+              {loading ? <i class="fa-solid fa-circle-notch fa-spin"></i> : <i class="fa-solid fa-right-to-bracket"></i>}
+              {loading ? 'Autenticando...' : 'Entrar no Sistema'}
+            </button>
+          </form>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<LoginPage />);
+  </script>
+</body>
+</html>

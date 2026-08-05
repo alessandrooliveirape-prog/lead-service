@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagnóstico Digital & Plano de Ação Local</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function LandingPage() {
+      const [lead, setLead] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      // Checkout PIX Modal State
+      const [modalOpen, setModalOpen] = useState(false);
+      const [pixLoading, setPixLoading] = useState(false);
+      const [pixData, setPixData] = useState(null);
+      const [copied, setCopied] = useState(false);
+
+      // Payment Polling State
+      const [isPaid, setIsPaid] = useState(false);
+      const [pdfUrl, setPdfUrl] = useState(null);
+      const [fullReport, setFullReport] = useState(null);
+
+      // Obter leadId da URL (ex: /d/3fa85f64...)
+      const pathParts = window.location.pathname.split('/');
+      const leadId = pathParts[pathParts.length - 1];
+
+      const fetchLeadData = async () => {
+        try {
+          const res = await fetch(`/api/public/lead/${leadId}`);
+          if (!res.ok) {
+            throw new Error('Diagnóstico não localizado ou link expirado.');
+          }
+          const data = await res.json();
+          setLead(data);
+          setIsPaid(data.isPaid);
+          if (data.pdfUrl) setPdfUrl(data.pdfUrl);
+          if (data.fullReport) setFullReport(data.fullReport);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        if (leadId) {
+          fetchLeadData();
+        }
+      }, [leadId]);
+
+      // Polling de pagamento ativo enquanto o modal estiver aberto e não pago
+      useEffect(() => {
+        let interval;
+        if (modalOpen && !isPaid) {
+          interval = setInterval(async () => {
+            try {
+              const res = await fetch(`/api/public/payment-status/${leadId}`);
+              if (res.ok) {
+                const statusData = await res.json();
+                if (statusData.isPaid) {
+                  setIsPaid(true);
+                  if (statusData.pdfUrl) setPdfUrl(statusData.pdfUrl);
+                  if (statusData.fullReport) setFullReport(statusData.fullReport);
+                  setModalOpen(false);
+                }
+              }
+            } catch (err) {
+              console.warn('Erro ao verificar status do pagamento:', err);
+            }
+          }, 3000);
+        }
+        return () => clearInterval(interval);
+      }, [modalOpen, isPaid, leadId]);
+
+      const handleGeneratePix = async () => {
+        setModalOpen(true);
+        if (pixData) return;
+
+        setPixLoading(true);
+        try {
+          const res = await fetch('/api/payment/create-pix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ leadId })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setPixData(data);
+          } else {
+            alert('Falha ao gerar o código PIX. Tente novamente.');
+          }
+        } catch (err) {
+          alert('Erro de conexão ao gerar o pagamento.');
+        } finally {
+          setPixLoading(false);
+        }
+      };
+
+      const handleCopyPix = () => {
+        if (pixData?.qrCodeCopyPaste) {
+          navigator.clipboard.writeText(pixData.qrCodeCopyPaste);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 3000);
+        }
+      };
+
+      if (loading) {
+        return (
+          <div class="min-h-screen flex items-center justify-center">
+            <div class="text-center space-y-3">
+              <i class="fa-solid fa-circle-notch fa-spin text-3xl text-emerald-500"></i>
+              <p class="text-xs text-slate-400">Carregando diagnóstico exclusivo...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (error || !lead) {
+        return (
+          <div class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center max-w-sm">
+              <i class="fa-solid fa-triangle-exclamation text-3xl text-amber-500 mb-3"></i>
+              <h2 class="font-bold text-slate-100">Link de Diagnóstico Inválido</h2>
+              <p class="text-xs text-slate-400 mt-2">{error || 'Não foi possível carregar os dados desta empresa.'}</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div class="min-h-screen pb-20">
+          {/* Header */}
+          <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30">
+            <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-8 h-8 rounded-lg bg-emerald-500 text-slate-950 font-black flex items-center justify-center text-sm">
+                  PE
+                </span>
+                <span class="font-bold text-sm text-slate-100">Auditoria Digital Pernambuco</span>
+              </div>
+              <span class="text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-2 py-0.5 rounded-full">
+                ✓ Análise Concluída
+              </span>
+            </div>
+          </header>
+
+          <main class="max-w-3xl mx-auto px-4 pt-8 space-y-8">
+            
+            {/* Hero / Nome do Negócio */}
+            <section class="text-center space-y-3">
+              <span class="text-xs font-semibold text-emerald-400 bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-900">
+                Relatório de Oportunidades Locais
+              </span>
+              <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-100 tracking-tight">
+                {lead.name}
+              </h1>
+              <p class="text-xs text-slate-400 flex items-center justify-center gap-2">
+                <span>📍 {lead.address || 'Localização confirmada'}</span>
+                <span>•</span>
+                <span class="text-amber-400 font-semibold">⭐ {lead.rating || 'N/A'} ({lead.userRatingsTotal || 0} avaliações no Google)</span>
+              </p>
+            </section>
+
+            {/* Diagnóstico IA (Teaser) */}
+            <section class="bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div class="flex items-center gap-2 text-amber-400">
+                <i class="fa-solid fa-lightbulb"></i>
+                <h2 class="font-bold text-sm uppercase tracking-wider text-slate-200">Diagnóstico Prévio Gerado por IA</h2>
+              </div>
+              
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
+                <p class="text-sm text-slate-200 leading-relaxed italic">
+                  "{lead.teaser || 'Diagnóstico preliminar em análise.'}"
+                </p>
+              </div>
+            </section>
+
+            {/* Se o Relatório JÁ foi pago, exibe o conteúdo completo na tela e o botão de Download PDF */}
+            {isPaid && fullReport ? (
+              <section class="bg-slate-900 border border-emerald-800/80 rounded-2xl p-6 shadow-2xl space-y-6">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                  <div>
+                    <span class="text-xs font-semibold text-emerald-400">✓ Acesso Liberado</span>
+                    <h3 class="text-xl font-bold text-slate-100">Relatório Estratégico Completo</h3>
+                  </div>
+                  {pdfUrl && (
+                    <a
+                      href={pdfUrl}
+                      target="_blank"
+                      download
+                      class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-4 py-2 rounded-xl transition-all shadow-lg shadow-emerald-600/20 flex items-center gap-2"
+                    >
+                      <i class="fa-solid fa-file-pdf"></i>
+                      Baixar PDF Oficial
+                    </a>
+                  )}
+                </div>
+
+                {/* Plano de Ação 30 Dias */}
+                {fullReport.action_plan_30_days && (
+                  <div class="space-y-3">
+                    <h4 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+                      🚀 1. Plano de Ação de 30 Dias
+                    </h4>
+                    <div class="space-y-2">
+                      {fullReport.action_plan_30_days.map((step, i) => (
+                        <div key={i} class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs text-slate-300">
+                          <strong class="text-emerald-400">Semana {i+1}:</strong> {step}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sugestões de Postagens */}
+                {fullReport.post_suggestions && (
+                  <div class="space-y-3 pt-4 border-t border-slate-800">
+                    <h4 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+                      📱 2. Ideias de Postagens Locais
+                    </h4>
+                    <div class="space-y-2">
+                      {fullReport.post_suggestions.map((post, i) => (
+                        <div key={i} class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs text-slate-300">
+                          <strong class="text-indigo-400">Post {i+1}:</strong> {post}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Respostas para Reviews Negativas */}
+                {fullReport.negative_review_replies && (
+                  <div class="space-y-3 pt-4 border-t border-slate-800">
+                    <h4 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+                      💬 3. Scripts para Avaliações Negativas
+                    </h4>
+                    <div class="space-y-2">
+                      {fullReport.negative_review_replies.map((reply, i) => (
+                        <div key={i} class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs text-slate-300 italic">
+                          <strong class="text-amber-400 not-italic">Modelo {i+1}:</strong> "{reply}"
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            ) : (
+              /* Proposta de Valor / Oferta do Relatório Completo por R$ 47,00 */
+              <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
+                <div class="text-center space-y-2">
+                  <h3 class="text-lg font-bold text-slate-100">O que você recebe no Relatório Completo:</h3>
+                  <p class="text-xs text-slate-400">Um mapa prático passo a passo para dominar as buscas locais na sua cidade</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center space-y-2">
+                    <div class="w-10 h-10 rounded-full bg-emerald-950 text-emerald-400 flex items-center justify-center mx-auto text-lg">🚀</div>
+                    <h4 class="font-bold text-xs text-slate-200">Plano de 30 Dias</h4>
+                    <p class="text-[11px] text-slate-400">Ações semanais para subir a posição no Google Meu Negócio.</p>
+                  </div>
+
+                  <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center space-y-2">
+                    <div class="w-10 h-10 rounded-full bg-indigo-950 text-indigo-400 flex items-center justify-center mx-auto text-lg">📱</div>
+                    <h4 class="font-bold text-xs text-slate-200">5 Posts Prontos</h4>
+                    <p class="text-[11px] text-slate-400">Conteúdos prontos focados nos clientes da sua região.</p>
+                  </div>
+
+                  <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center space-y-2">
+                    <div class="w-10 h-10 rounded-full bg-amber-950 text-amber-400 flex items-center justify-center mx-auto text-lg">💬</div>
+                    <h4 class="font-bold text-xs text-slate-200">Respostas a Reviews</h4>
+                    <p class="text-[11px] text-slate-400">5 modelos profissionais para proteger sua reputação online.</p>
+                  </div>
+                </div>
+
+                {/* Preço e CTA */}
+                <div class="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-900/50 text-center space-y-4">
+                  <div>
+                    <span class="text-xs text-slate-400 line-through">De R$ 197,00</span>
+                    <div class="text-3xl font-black text-emerald-400 mt-1">
+                      R$ 47,00 <span class="text-xs font-normal text-slate-400">pagamento único via PIX</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleGeneratePix}
+                    class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold text-sm py-3.5 px-6 rounded-xl shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <i class="fa-solid fa-[#000000] fa-qrcode"></i>
+                    Desbloquear Plano de Ação Completo por R$ 47,00
+                  </button>
+
+                  <p class="text-[10px] text-slate-500">🔒 Acesso imediato no WhatsApp e na tela após confirmação do PIX.</p>
+                </div>
+              </section>
+            )}
+          </main>
+
+          {/* Modal de Checkout PIX */}
+          {modalOpen && (
+            <div class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 text-center">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                  <span class="font-bold text-sm text-slate-100">Pagamento via PIX (R$ 47,00)</span>
+                  <button onClick={() => setModalOpen(false)} class="text-slate-400 hover:text-slate-100">✕</button>
+                </div>
+
+                {pixLoading ? (
+                  <div class="py-10 space-y-3">
+                    <i class="fa-solid fa-circle-notch fa-spin text-2xl text-emerald-500"></i>
+                    <p class="text-xs text-slate-400">Gerando QR Code PIX seguro...</p>
+                  </div>
+                ) : pixData ? (
+                  <div class="space-y-4">
+                    {/* Imagem QR Code */}
+                    <div class="bg-white p-3 rounded-xl inline-block shadow-inner mx-auto">
+                      <img 
+                        src={`data:image/png;base64,${pixData.qrCodeBase64}`} 
+                        alt="QR Code PIX" 
+                        class="w-48 h-48 mx-auto object-contain"
+                      />
+                    </div>
+
+                    <p class="text-xs text-slate-400">Abra o app do seu banco e escaneie o código acima ou copie a chave abaixo:</p>
+
+                    {/* Botão Copia e Cola */}
+                    <button
+                      onClick={handleCopyPix}
+                      class={`w-full font-bold text-xs py-2.5 px-4 rounded-xl border transition-all flex items-center justify-center gap-2 ${
+                        copied 
+                          ? 'bg-emerald-950 text-emerald-300 border-emerald-700' 
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700'
+                      }`}
+                    >
+                      <i class={`fa-solid ${copied ? 'fa-check' : 'fa-copy'}`}></i>
+                      {copied ? 'Chave Copiada com Sucesso!' : 'Copiar Código PIX (Copia e Cola)'}
+                    </button>
+
+                    <div class="pt-2 flex items-center justify-center gap-2 text-[11px] text-amber-400 bg-amber-950/40 p-2 rounded-lg border border-amber-900/30">
+                      <i class="fa-solid fa-arrows-rotate fa-spin text-[10px]"></i>
+                      Aguardando confirmação do banco...
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<LandingPage />);
+  </script>
+</body>
+</html>

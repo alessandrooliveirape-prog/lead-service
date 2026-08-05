@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Funil Autônomo de Vendas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#22c55e',
+              600: '#16a34a',
+              900: '#14532d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function LeadDashboard() {
+      const [stats, setStats] = useState(null);
+      const [leads, setLeads] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [statsLoading, setStatsLoading] = useState(true);
+      
+      const [autoStatus, setAutoStatus] = useState(null);
+      const [autoLoading, setAutoLoading] = useState(false);
+
+      const [statusFilter, setStatusFilter] = useState('ALL');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [page, setPage] = useState(1);
+      const [totalPages, setTotalPages] = useState(1);
+      const [totalCount, setTotalCount] = useState(0);
+
+      const [nichoInput, setNichoInput] = useState('');
+      const [cidadeInput, setCidadeInput] = useState('');
+      const [scraping, setScraping] = useState(false);
+      const [scrapeNotice, setScrapeNotice] = useState(null);
+
+      const [selectedLead, setSelectedLead] = useState(null);
+
+      const getAuthHeaders = () => {
+        const token = localStorage.getItem('lead_admin_token');
+        if (!token) {
+          window.location.href = '/login.html';
+          return {};
+        }
+        return { 'Authorization': `Bearer ${token}` };
+      };
+
+      const handleAuthError = (res) => {
+        if (res.status === 401) {
+          localStorage.removeItem('lead_admin_token');
+          window.location.href = '/login.html';
+        }
+      };
+
+      const fetchStats = async () => {
+        setStatsLoading(true);
+        try {
+          const res = await fetch('/api/leads/stats', { headers: getAuthHeaders() });
+          handleAuthError(res);
+          if (res.ok) {
+            const data = await res.json();
+            setStats(data);
+          }
+        } catch (err) {
+          console.error('Erro ao carregar estatísticas:', err);
+        } finally {
+          setStatsLoading(false);
+        }
+      };
+
+      const fetchLeads = async () => {
+        setLoading(true);
+        try {
+          const queryStr = new URLSearchParams({
+            page,
+            limit: 10,
+            status: statusFilter,
+            search: searchQuery
+          }).toString();
+
+          const res = await fetch(`/api/leads?${queryStr}`, { headers: getAuthHeaders() });
+          handleAuthError(res);
+          if (res.ok) {
+            const data = await res.json();
+            setLeads(data.leads || []);
+            setTotalPages(data.totalPages || 1);
+            setTotalCount(data.total || 0);
+          }
+        } catch (err) {
+          console.error('Erro ao carregar leads:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const fetchAutomationStatus = async () => {
+        try {
+          const res = await fetch('/api/automation/status', { headers: getAuthHeaders() });
+          handleAuthError(res);
+          if (res.ok) {
+            const data = await res.json();
+            setAutoStatus(data);
+          }
+        } catch (err) {
+          console.error('Erro ao buscar status da automação:', err);
+        }
+      };
+
+      useEffect(() => {
+        const token = localStorage.getItem('lead_admin_token');
+        if (!token) {
+          window.location.href = '/login.html';
+          return;
+        }
+
+        fetchStats();
+        fetchAutomationStatus();
+      }, []);
+
+      useEffect(() => {
+        const token = localStorage.getItem('lead_admin_token');
+        if (token) {
+          fetchLeads();
+        }
+      }, [page, statusFilter, searchQuery]);
+
+      const handleLogout = () => {
+        localStorage.removeItem('lead_admin_token');
+        window.location.href = '/login.html';
+      };
+
+      const handleToggleAutopilot = async () => {
+        setAutoLoading(true);
+        try {
+          const endpoint = autoStatus?.isActive ? '/api/automation/stop' : '/api/automation/start';
+          const res = await fetch(endpoint, { method: 'POST', headers: getAuthHeaders() });
+          handleAuthError(res);
+          if (res.ok) {
+            fetchAutomationStatus();
+          }
+        } catch (err) {
+          alert('Erro ao alterar status do Piloto Automático.');
+        } finally {
+          setAutoLoading(false);
+        }
+      };
+
+      const handleRunAutopilotNow = async () => {
+        setAutoLoading(true);
+        setScrapeNotice({ type: 'info', text: 'Rodando ciclo completo do Piloto Automático (Scraper ➔ IA ➔ WhatsApp)...' });
+        try {
+          const res = await fetch('/api/automation/run-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ nicho: nichoInput || undefined, cidade: cidadeInput || undefined })
+          });
+          handleAuthError(res);
+          const data = await res.json();
+          if (res.ok) {
+            setScrapeNotice({ 
+              type: 'success', 
+              text: `Ciclo Concluído! Scraped: ${data.summary?.scraping?.totalSalvos || 0} | Auditados: ${data.summary?.auditsCompleted || 0} | Enviados: ${data.summary?.whatsappBatch?.sucessos || 0}` 
+            });
+            fetchStats();
+            fetchLeads();
+            fetchAutomationStatus();
+          } else {
+            setScrapeNotice({ type: 'error', text: data.error || 'Erro no ciclo do Piloto Automático.' });
+          }
+        } catch (err) {
+          setScrapeNotice({ type: 'error', text: 'Falha de conexão ao executar ciclo do Piloto Automático.' });
+        } finally {
+          setAutoLoading(false);
+        }
+      };
+
+      const handleRunScraper = async (e) => {
+        e.preventDefault();
+        if (!nichoInput || !cidadeInput) {
+          setScrapeNotice({ type: 'error', text: 'Preencha o Nicho e a Cidade antes de iniciar.' });
+          return;
+        }
+
+        setScraping(true);
+        setScrapeNotice({ type: 'info', text: 'Buscando estabelecimentos no Google Places...' });
+
+        try {
+          const queryStr = new URLSearchParams({ nicho: nichoInput, cidade: cidadeInput }).toString();
+          const res = await fetch(`/api/scraper/run?${queryStr}`, { headers: getAuthHeaders() });
+          handleAuthError(res);
+          const data = await res.json();
+
+          if (res.ok) {
+            setScrapeNotice({ 
+              type: 'success', 
+              text: `Sucesso! ${data.stats.totalSalvos} novos leads foram salvos no banco.` 
+            });
+            fetchStats();
+            fetchLeads();
+            setNichoInput('');
+            setCidadeInput('');
+          } else {
+            setScrapeNotice({ type: 'error', text: data.error || 'Falha ao executar scraper.' });
+          }
+        } catch (err) {
+          setScrapeNotice({ type: 'error', text: 'Erro de rede ao conectar com a API de scraping.' });
+        } finally {
+          setScraping(false);
+        }
+      };
+
+      const getStatusBadge = (status) => {
+        switch (status) {
+          case 'DISCOVERED':
+            return <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-950 text-blue-400 border border-blue-800/50"><i class="fa-solid fa-[#1e40af] fa-circle text-[8px] mr-1.5"></i>DISCOVERED</span>;
+          case 'AUDITED':
+            return <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-950 text-amber-400 border border-amber-800/50"><i class="fa-solid fa-wand-magic-sparkles text-[10px] mr-1.5"></i>AUDITED</span>;
+          case 'CONTACTED':
+            return <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-950 text-purple-400 border border-purple-800/50"><i class="fa-brands fa-whatsapp mr-1.5"></i>CONTACTED</span>;
+          case 'PAID':
+            return <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/50"><i class="fa-solid fa-check mr-1.5"></i>PAID</span>;
+          default:
+            return <span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-800 text-slate-400">{status}</span>;
+        }
+      };
+
+      return (
+        <div class="min-h-screen bg-slate-950 pb-12">
+          {/* Top Bar */}
+          <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 font-bold text-lg">
+                  ⚡
+                </div>
+                <div>
+                  <h1 class="text-xl font-bold text-slate-100 tracking-tight">Funil Autônomo de Vendas</h1>
+                  <p class="text-xs text-slate-400">Prospecção, Auditoria via IA & Fechamento no WhatsApp</p>
+                </div>
+              </div>
+
+              {/* Botões de Ação & Automação & Logout */}
+              <div class="flex items-center gap-3">
+                <button
+                  onClick={handleToggleAutopilot}
+                  disabled={autoLoading}
+                  class={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border shadow-lg ${
+                    autoStatus?.isActive 
+                      ? 'bg-emerald-950 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900' 
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <span class={`w-2 h-2 rounded-full ${autoStatus?.isActive ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`}></span>
+                  {autoStatus?.isActive ? 'Piloto Automático ATIVO 24/7' : 'Ativar Piloto Automático'}
+                </button>
+
+                <button
+                  onClick={handleRunAutopilotNow}
+                  disabled={autoLoading || autoStatus?.isProcessingNow}
+                  class="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+                >
+                  {autoStatus?.isProcessingNow ? <i class="fa-solid fa-circle-notch fa-spin"></i> : <i class="fa-solid fa-play"></i>}
+                  {autoStatus?.isProcessingNow ? 'Rodando Ciclo...' : 'Executar Ciclo Agora'}
+                </button>
+
+                <button 
+                  onClick={handleLogout}
+                  class="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg bg-slate-800/50 border border-slate-700/50"
+                  title="Sair do sistema"
+                >
+                  <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
+            
+            {/* KPI Cards Grid */}
+            <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+              <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Leads</p>
+                <p class="text-2xl font-extrabold text-slate-100 mt-2">{statsLoading ? '...' : stats?.totalLeads ?? 0}</p>
+                <div class="absolute right-3 bottom-3 text-slate-700 text-2xl opacity-40"><i class="fa-solid fa-users"></i></div>
+              </div>
+
+              <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                <p class="text-xs font-medium text-amber-400 uppercase tracking-wider">Auditados</p>
+                <p class="text-2xl font-extrabold text-amber-300 mt-2">{statsLoading ? '...' : stats?.auditedLeads ?? 0}</p>
+                <div class="absolute right-3 bottom-3 text-amber-500 text-2xl opacity-20"><i class="fa-solid fa-brain"></i></div>
+              </div>
+
+              <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                <p class="text-xs font-medium text-purple-400 uppercase tracking-wider">Contatados</p>
+                <p class="text-2xl font-extrabold text-purple-300 mt-2">{statsLoading ? '...' : stats?.contactedLeads ?? 0}</p>
+                <div class="absolute right-3 bottom-3 text-purple-500 text-2xl opacity-20"><i class="fa-brands fa-whatsapp"></i></div>
+              </div>
+
+              <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden border-emerald-900/40">
+                <p class="text-xs font-medium text-emerald-400 uppercase tracking-wider">Vendas (Pagos)</p>
+                <p class="text-2xl font-extrabold text-emerald-300 mt-2">{statsLoading ? '...' : stats?.paidLeads ?? 0}</p>
+                <div class="absolute right-3 bottom-3 text-emerald-500 text-2xl opacity-20"><i class="fa-solid fa-[#16a34a] fa-circle-check"></i></div>
+              </div>
+
+              <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                <p class="text-xs font-medium text-indigo-400 uppercase tracking-wider">Taxa Conversão</p>
+                <p class="text-2xl font-extrabold text-indigo-300 mt-2">{statsLoading ? '...' : `${stats?.conversionRate ?? 0}%`}</p>
+                <div class="absolute right-3 bottom-3 text-indigo-500 text-2xl opacity-20"><i class="fa-solid fa-chart-line"></i></div>
+              </div>
+
+              <div class="bg-gradient-to-br from-emerald-950/80 to-slate-900 border border-emerald-800/50 rounded-2xl p-4 shadow-lg shadow-emerald-950/40 relative overflow-hidden">
+                <p class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Faturamento</p>
+                <p class="text-2xl font-extrabold text-emerald-300 mt-2">{statsLoading ? '...' : `R$ ${stats?.totalRevenue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) ?? '0,00'}`}</p>
+                <div class="absolute right-3 bottom-3 text-emerald-400 text-2xl opacity-30"><i class="fa-solid fa-sack-dollar"></i></div>
+              </div>
+            </section>
+
+            {/* Painel de Controle de Automação */}
+            <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl">
+              <div class="flex items-center gap-2 mb-4">
+                <i class="fa-solid fa-bolt text-amber-400"></i>
+                <h2 class="text-lg font-bold text-slate-100">Disparo de Nova Prospecção (Google Places Scraper)</h2>
+              </div>
+              <form onSubmit={handleRunScraper} class="flex flex-col sm:flex-row gap-4 items-end">
+                <div class="flex-1 w-full">
+                  <label class="block text-xs font-medium text-slate-400 mb-1">Nicho de Mercado</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Oficina Mecânica, Odontologia, Restaurante" 
+                    value={nichoInput}
+                    onChange={(e) => setNichoInput(e.target.value)}
+                    class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+                <div class="flex-1 w-full">
+                  <label class="block text-xs font-medium text-slate-400 mb-1">Cidade / Região</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Recife, Caruaru, Olinda" 
+                    value={cidadeInput}
+                    onChange={(e) => setCidadeInput(e.target.value)}
+                    class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={scraping}
+                  class="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2"
+                >
+                  {scraping ? <i class="fa-solid fa-circle-notch fa-spin"></i> : <i class="fa-solid fa-[#22c55e] fa-play"></i>}
+                  {scraping ? 'Buscando & Filtrando...' : 'Iniciar Scraper'}
+                </button>
+              </form>
+
+              {scrapeNotice && (
+                <div class={`mt-4 p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+                  scrapeNotice.type === 'error' ? 'bg-red-950/60 border-red-800/60 text-red-300' :
+                  scrapeNotice.type === 'success' ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300' :
+                  'bg-blue-950/60 border-blue-800/60 text-blue-300'
+                }`}>
+                  <i class={`fa-solid ${scrapeNotice.type === 'error' ? 'fa-circle-exclamation' : scrapeNotice.type === 'success' ? 'fa-circle-check' : 'fa-circle-info'}`}></i>
+                  {scrapeNotice.text}
+                </div>
+              )}
+            </section>
+
+            {/* Tabela de Leads */}
+            <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 class="text-lg font-bold text-slate-100">Leads Capturados ({totalCount})</h3>
+                  <p class="text-xs text-slate-400">Listagem atualizada em tempo real</p>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-center gap-3">
+                  <div class="relative w-full sm:w-64">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-500 text-xs"></i>
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por empresa..." 
+                      value={searchQuery}
+                      onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                      class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 w-full sm:w-auto justify-center">
+                    {['ALL', 'DISCOVERED', 'AUDITED', 'CONTACTED', 'PAID'].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => { setStatusFilter(st); setPage(1); }}
+                        class={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                          statusFilter === st 
+                            ? 'bg-slate-800 text-slate-100 shadow-sm' 
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {st === 'ALL' ? 'Todos' : st}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div class="overflow-x-auto rounded-xl border border-slate-800">
+                <table class="w-full text-left text-xs text-slate-300">
+                  <thead class="bg-slate-950/80 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                    <tr>
+                      <th class="py-3 px-4">Empresa</th>
+                      <th class="py-3 px-4">Telefone</th>
+                      <th class="py-3 px-4">Avaliação Google</th>
+                      <th class="py-3 px-4">Status Atual</th>
+                      <th class="py-3 px-4">Data</th>
+                      <th class="py-3 px-4 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/60 bg-slate-900/40">
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} class="animate-pulse">
+                          <td class="py-4 px-4"><div class="h-4 bg-slate-800 rounded w-32"></div></td>
+                          <td class="py-4 px-4"><div class="h-4 bg-slate-800 rounded w-24"></div></td>
+                          <td class="py-4 px-4"><div class="h-4 bg-slate-800 rounded w-16"></div></td>
+                          <td class="py-4 px-4"><div class="h-4 bg-slate-800 rounded w-20"></div></td>
+                          <td class="py-4 px-4"><div class="h-4 bg-slate-800 rounded w-20"></div></td>
+                          <td class="py-4 px-4 text-right"><div class="h-4 bg-slate-800 rounded w-12 ml-auto"></div></td>
+                        </tr>
+                      ))
+                    ) : leads.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" class="py-8 text-center text-slate-500">
+                          Nenhum lead encontrado com os filtros aplicados.
+                        </td>
+                      </tr>
+                    ) : (
+                      leads.map((lead) => (
+                        <tr key={lead.id} class="hover:bg-slate-800/40 transition-colors">
+                          <td class="py-3 px-4 font-semibold text-slate-100">
+                            {lead.name}
+                            <span class="block text-[10px] font-normal text-slate-400 truncate max-w-xs">{lead.address}</span>
+                          </td>
+                          <td class="py-3 px-4 font-mono text-slate-300">
+                            {lead.phone || <span class="text-slate-600">N/A</span>}
+                          </td>
+                          <td class="py-3 px-4">
+                            <span class="inline-flex items-center gap-1 font-semibold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-900/30">
+                              ⭐ {lead.rating ?? 'N/A'} <span class="text-[10px] text-slate-400">({lead.user_ratings_total ?? 0})</span>
+                            </span>
+                          </td>
+                          <td class="py-3 px-4">
+                            {getStatusBadge(lead.status)}
+                          </td>
+                          <td class="py-3 px-4 text-slate-400">
+                            {new Date(lead.created_at).toLocaleDateString('pt-BR')}
+                          </td>
+                          <td class="py-3 px-4 text-right">
+                            <button
+                              onClick={() => setSelectedLead(lead)}
+                              class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 text-xs transition-colors"
+                            >
+                              Ver Teaser
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="flex items-center justify-between pt-2">
+                <p class="text-xs text-slate-400">Página {page} de {totalPages}</p>
+                <div class="flex gap-2">
+                  <button 
+                    disabled={page <= 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs text-slate-200 rounded-lg border border-slate-700 transition-colors"
+                  >
+                    Anterior
+                  </button>
+                  <button 
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(p => p + 1)}
+                    class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs text-slate-200 rounded-lg border border-slate-700 transition-colors"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
+            </section>
+          </main>
+
+          {selectedLead && (
+            <div class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <h4 class="font-bold text-lg text-slate-100">{selectedLead.name}</h4>
+                    <p class="text-xs text-slate-400">{selectedLead.address}</p>
+                  </div>
+                  <button onClick={() => setSelectedLead(null)} class="text-slate-400 hover:text-slate-100 p-1">✕</button>
+                </div>
+
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs space-y-3">
+                  <div class="flex justify-between border-b border-slate-800 pb-2">
+                    <span class="text-slate-400">Status:</span>
+                    {getStatusBadge(selectedLead.status)}
+                  </div>
+                  
+                  <div>
+                    <p class="font-semibold text-emerald-400 mb-1">Teaser Consultivo (IA):</p>
+                    <p class="text-slate-300 leading-relaxed italic bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                      "{selectedLead.audit_summary?.teaser || 'Teaser ainda não gerado. Execute a auditoria neste lead.'}"
+                    </p>
+                  </div>
+
+                  {selectedLead.pdf_url && (
+                    <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+                      <span class="text-slate-300 font-medium">Relatório PDF Gerado:</span>
+                      <a href={selectedLead.pdf_url} target="_blank" class="text-emerald-400 hover:underline">Ver PDF</a>
+                    </div>
+                  )}
+                </div>
+
+                <div class="flex justify-end">
+                  <button onClick={() => setSelectedLead(null)} class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-xl text-xs font-semibold">Fechar</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<LeadDashboard />);
+  </script>
+</body>
+</html>

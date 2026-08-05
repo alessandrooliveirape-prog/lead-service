@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  DISCOVERED
+  AUDITED
+  CONTACTED
+  FOLLOWED_UP
+  PAID
+  FAILED
+}
+
+
+model Lead {
+  id                 String     @id @default(uuid()) @db.Uuid
+  name               String
+  address            String?
+  phone              String?
+  rating             Float?
+  userRatingsTotal   Int?       @map("user_ratings_total")
+  placeId            String     @unique @map("place_id")
+  status             LeadStatus @default(DISCOVERED)
+  auditSummary       Json?      @map("audit_summary")
+  pdfUrl             String?    @map("pdf_url")
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("leads")
+}
