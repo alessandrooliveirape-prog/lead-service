@@ -28,14 +28,16 @@ export interface LeadRecord {
 export class AuditService {
   private geminiKey: string;
   private openaiKey: string;
+  private groqKey: string;
   private pdfService: PdfService;
 
   constructor() {
-    this.geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_PLACES_API_KEY || '';
+    this.geminiKey = process.env.GEMINI_API_KEY || '';
     this.openaiKey = process.env.OPENAI_API_KEY || '';
+    this.groqKey = process.env.GROQ_API_KEY || '';
+
     this.pdfService = new PdfService();
   }
-
 
   /**
    * Envia os dados do Lead para a LLM e gera o relatório estruturado em JSON
@@ -83,13 +85,30 @@ IMPORTANTE: Responda APENAS com o código JSON puro, sem markdown, sem explicaç
 
     let jsonResponseText = '';
 
-    if (this.geminiKey) {
-      jsonResponseText = await this.callGemini(promptSystem, promptUser);
-    } else if (this.openaiKey) {
-      jsonResponseText = await this.callOpenAI(promptSystem, promptUser);
-    } else {
-      throw new Error('Nenhuma chave de LLM (GEMINI_API_KEY ou OPENAI_API_KEY) foi encontrada no ambiente.');
+    if (this.groqKey) {
+      try {
+        jsonResponseText = await this.callGroq(promptSystem, promptUser);
+      } catch (groqErr) {
+        console.warn('Falha na API Groq, tentando fallback...', groqErr);
+      }
     }
+
+    if (!jsonResponseText && this.geminiKey) {
+      try {
+        jsonResponseText = await this.callGemini(promptSystem, promptUser);
+      } catch (gemErr) {
+        console.warn('Falha na API Gemini, tentando fallback...', gemErr);
+      }
+    }
+
+    if (!jsonResponseText && this.openaiKey) {
+      jsonResponseText = await this.callOpenAI(promptSystem, promptUser);
+    }
+
+    if (!jsonResponseText) {
+      throw new Error('Nenhuma resposta de LLM pôde ser obtida (Groq, Gemini ou OpenAI).');
+    }
+
 
     // Limpeza de blocos markdown se existirem (ex: ```json ... ```)
     const cleanedJson = jsonResponseText.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -145,7 +164,43 @@ IMPORTANTE: Responda APENAS com o código JSON puro, sem markdown, sem explicaç
   }
 
 
+  private async callGroq(systemPrompt: string, userPrompt: string): Promise<string> {
+    const url = 'https://api.groq.com/openai/v1/chat/completions';
+    
+    const body = {
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.groqKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Erro na API do Groq: ${res.status} - ${errText}`);
+    }
+
+    const data: any = await res.json();
+    const messageContent = data?.choices?.[0]?.message?.content;
+    if (!messageContent) {
+      throw new Error('A API do Groq retornou uma resposta vazia.');
+    }
+    return messageContent;
+  }
+
   private async callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiKey}`;
 
     
